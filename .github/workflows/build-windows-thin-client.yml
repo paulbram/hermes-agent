@@ -1,0 +1,55 @@
+name: Build Windows thin client
+
+on:
+  push:
+    branches:
+      - build/windows-thin-client-v2026.9.21
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out Hermes v0.21.4
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+
+      - name: Build unsigned NSIS package
+        run: npm run dist:win:nsis --workspace apps/desktop
+
+      - name: Validate packaged desktop payload
+        shell: pwsh
+        run: |
+          $env:HERMES_DESKTOP_SKIP_BUILD = "1"
+          npm run test:desktop:nsis --workspace apps/desktop
+
+      - name: Create portable package
+        shell: pwsh
+        run: |
+          $exe = "apps/desktop/release/win-unpacked/Hermes.exe"
+          if (-not (Test-Path $exe)) { throw "Missing packaged Hermes.exe" }
+          Compress-Archive -Path "apps/desktop/release/win-unpacked/*" -DestinationPath "apps/desktop/release/Hermes-0.21.4-windows-thin-client-portable.zip" -Force
+          Get-FileHash $exe -Algorithm SHA256
+          Get-ChildItem "apps/desktop/release" -File | Select-Object Name, Length
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hermes-0.21.4-windows-thin-client
+          path: |
+            apps/desktop/release/Hermes-*-win-*.exe
+            apps/desktop/release/Hermes-0.21.4-windows-thin-client-portable.zip
+          if-no-files-found: error
+          retention-days: 7
